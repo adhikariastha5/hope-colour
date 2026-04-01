@@ -1,0 +1,574 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>What Colour is Hope?</title>
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,700;0,900;1,700&family=Cormorant+Garamond:ital,wght@0,300;0,400;1,300;1,400&family=Space+Mono&display=swap" rel="stylesheet">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      background: #070707;
+      color: #fff;
+      font-family: 'Cormorant Garamond', Georgia, serif;
+      display: flex;
+      align-items: flex-start;
+      justify-content: center;
+      min-height: 100vh;
+      padding: 28px;
+    }
+
+    .title-block { text-align: center; }
+    h1 {
+      font-family: 'Playfair Display', Georgia, serif;
+      font-size: 2.6rem;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      color: #c9a84c;
+      text-transform: none;
+    }
+
+    .layout {
+      display: flex;
+      gap: 24px;
+      align-items: flex-start;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+
+    /* title + canvases pushed down together, spectrum stays at top */
+    .main-content {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 28px;
+      padding-top: 52px;
+    }
+
+    .canvases-row {
+      display: flex;
+      gap: 24px;
+      align-items: flex-start;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+
+    /* ── Spectrum panel ──────────────────────────────────── */
+    .spectrum-panel {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 14px;
+      width: 68px;
+      padding-top: 2px;
+    }
+    .panel-label {
+      font-family: 'Space Mono', monospace;
+      font-size: 0.52rem;
+      letter-spacing: 0.22em;
+      color: #2c2c2c;
+      text-transform: uppercase;
+    }
+
+    .hue-strip-wrap {
+      position: relative;
+      width: 30px;
+      height: 420px;
+    }
+    .hue-strip {
+      width: 30px;
+      height: 420px;
+      border-radius: 15px;
+      background: linear-gradient(to bottom,
+        hsl(0,75%,52%), hsl(20,80%,52%), hsl(40,80%,52%),
+        hsl(60,80%,52%), hsl(80,75%,48%), hsl(100,75%,48%),
+        hsl(120,72%,48%), hsl(150,75%,48%), hsl(170,78%,48%),
+        hsl(190,80%,50%), hsl(210,80%,52%), hsl(230,80%,52%),
+        hsl(250,78%,52%), hsl(270,78%,52%), hsl(290,78%,52%),
+        hsl(310,78%,52%), hsl(330,78%,52%), hsl(360,75%,52%));
+      opacity: 0.55;
+    }
+    .hue-indicator {
+      position: absolute;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 20px;
+      height: 20px;
+      border: 2px solid #fff;
+      border-radius: 50%;
+      pointer-events: none;
+      box-shadow: 0 0 0 1px rgba(0,0,0,0.6);
+      transition: top 0.09s ease-out;
+    }
+
+    .axis-hint {
+      font-family: 'Space Mono', monospace;
+      font-size: 0.48rem;
+      color: #282828;
+      letter-spacing: 0.05em;
+      text-align: center;
+      line-height: 1.6;
+    }
+
+    .tone-bar-wrap {
+      position: relative;
+      width: 30px;
+      height: 80px;
+    }
+    .tone-bar {
+      width: 30px;
+      height: 80px;
+      border-radius: 15px;
+      opacity: 0.55;
+      transition: background 0.15s;
+    }
+    .tone-indicator {
+      position: absolute;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 16px;
+      height: 16px;
+      border: 2px solid rgba(255,255,255,0.7);
+      border-radius: 50%;
+      pointer-events: none;
+      transition: top 0.09s ease-out;
+    }
+
+    .color-preview {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+      margin-top: 4px;
+    }
+    .color-swatch {
+      width: 38px;
+      height: 38px;
+      border-radius: 50%;
+      transition: background-color 0.12s, box-shadow 0.12s;
+    }
+    .color-name {
+      font-size: 0.72rem;
+      font-style: italic;
+      color: #3a3a3a;
+      letter-spacing: 0.06em;
+      text-align: center;
+      min-height: 1em;
+      transition: color 0.3s;
+    }
+
+    /* ── Canvases ────────────────────────────────────────── */
+    .frame-wrap {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 12px;
+    }
+    .frame-label {
+      font-family: 'Space Mono', monospace;
+      font-size: 0.52rem;
+      letter-spacing: 0.22em;
+      color: #262626;
+      text-transform: uppercase;
+    }
+    canvas { display: block; }
+    #liveCanvas {
+      border: 1px solid #151515;
+      transition: box-shadow 0.18s ease;
+    }
+    #collectiveCanvas { border: 1px solid #131313; }
+    #count {
+      font-family: 'Space Mono', monospace;
+      font-size: 0.52rem;
+      color: #252525;
+      letter-spacing: 0.14em;
+    }
+  </style>
+</head>
+<body>
+
+<div class="layout">
+
+  <!-- ── Spectrum reference (stays at top) ───────────────── -->
+  <div class="spectrum-panel">
+    <div class="panel-label">Hue</div>
+    <div class="hue-strip-wrap">
+      <div class="hue-strip"></div>
+      <div class="hue-indicator" id="hueIndicator"></div>
+    </div>
+    <div class="axis-hint">← left<br>→ right</div>
+
+    <div class="panel-label">Tone</div>
+    <div class="tone-bar-wrap">
+      <div class="tone-bar" id="toneBar"></div>
+      <div class="tone-indicator" id="toneIndicator"></div>
+    </div>
+    <div class="axis-hint">↑ vivid<br>↓ soft</div>
+
+    <div class="color-preview">
+      <div class="color-swatch" id="colorSwatch"></div>
+      <div class="color-name" id="colorName">—</div>
+    </div>
+  </div>
+
+  <!-- ── Title + canvases pushed down ────────────────────── -->
+  <div class="main-content">
+
+    <div class="title-block">
+      <h1>What Colour is Hope?</h1>
+    </div>
+
+    <div class="canvases-row">
+      <!-- Live canvas -->
+      <div class="frame-wrap">
+        <div class="frame-label">Your Search</div>
+        <canvas id="liveCanvas" width="560" height="420"></canvas>
+      </div>
+
+      <!-- Collective canvas -->
+      <div class="frame-wrap">
+        <div class="frame-label">Collective</div>
+        <canvas id="collectiveCanvas" width="320" height="420"></canvas>
+        <div id="count">0 responses</div>
+      </div>
+    </div>
+
+  </div>
+
+</div>
+
+<video id="video" style="display:none" playsinline></video>
+
+<!-- No selfie segmentation needed anymore -->
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+
+<script>
+// ── DOM refs ───────────────────────────────────────────────────────────────
+const liveCanvas    = document.getElementById('liveCanvas');
+const liveCtx       = liveCanvas.getContext('2d');
+const W = liveCanvas.width, H = liveCanvas.height;
+
+const collectiveCanvas = document.getElementById('collectiveCanvas');
+const collectiveCtx    = collectiveCanvas.getContext('2d');
+const CW = collectiveCanvas.width, CH = collectiveCanvas.height;
+
+const video         = document.getElementById('video');
+const countEl       = document.getElementById('count');
+const hueIndicator  = document.getElementById('hueIndicator');
+const toneBar       = document.getElementById('toneBar');
+const toneIndicator = document.getElementById('toneIndicator');
+const colorSwatch   = document.getElementById('colorSwatch');
+const colorNameEl   = document.getElementById('colorName');
+
+// ── Particles ──────────────────────────────────────────────────────────────
+const PARTICLES = Array.from({ length: 40 }, () => ({
+  x: Math.random() * W,
+  y: Math.random() * H,
+  r: Math.random() * 2 + 0.4,
+  vy: -(Math.random() * 0.45 + 0.1),
+  vx: (Math.random() - 0.5) * 0.22,
+  a: Math.random() * 0.25 + 0.04,
+}));
+
+function tickParticles() {
+  PARTICLES.forEach(p => {
+    p.y += p.vy; p.x += p.vx;
+    if (p.y < -4) { p.y = H + 4; p.x = Math.random() * W; }
+    if (p.x < 0 || p.x > W) p.x = Math.random() * W;
+  });
+}
+
+function drawParticles() {
+  PARTICLES.forEach(p => {
+    liveCtx.beginPath();
+    liveCtx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+    liveCtx.fillStyle = `hsla(${currentHue},${currentSat}%,${currentLight + 20}%,${p.a})`;
+    liveCtx.fill();
+  });
+}
+
+// ── Colour name ────────────────────────────────────────────────────────────
+function hueName(h) {
+  h = ((h % 360) + 360) % 360;
+  if (h < 12)  return 'red';
+  if (h < 35)  return 'orange';
+  if (h < 62)  return 'yellow';
+  if (h < 88)  return 'chartreuse';
+  if (h < 150) return 'green';
+  if (h < 182) return 'teal';
+  if (h < 210) return 'cyan';
+  if (h < 255) return 'blue';
+  if (h < 275) return 'indigo';
+  if (h < 315) return 'violet';
+  if (h < 340) return 'magenta';
+  return 'crimson';
+}
+
+// ── State ──────────────────────────────────────────────────────────────────
+let landmarks = null;
+let handX = 0.5, handY = 0.5;
+let currentHue = 200, currentSat = 62, currentLight = 48;
+let pinching = false, lastPinch = false;
+let savedColors = [];
+let frame = 0, handVisible = false, cameraReady = false;
+let flashFrames = 0;
+let lastHueName = '';
+
+// ── MediaPipe: Hands only ──────────────────────────────────────────────────
+const hands = new Hands({
+  locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}`
+});
+hands.setOptions({
+  maxNumHands: 1, modelComplexity: 1,
+  minDetectionConfidence: 0.72, minTrackingConfidence: 0.65,
+});
+hands.onResults(r => {
+  if (!r.multiHandLandmarks?.length) {
+    handVisible = false; landmarks = null; return;
+  }
+  handVisible = true;
+  landmarks   = r.multiHandLandmarks[0];
+
+  const palm = landmarks[9];
+  handX = 1 - palm.x; // mirror
+  handY = palm.y;
+
+  const th = landmarks[4], ix = landmarks[8];
+  pinching = Math.hypot(th.x - ix.x, th.y - ix.y) < 0.05;
+  if (pinching && !lastPinch) selectColour();
+  lastPinch = pinching;
+});
+
+// ── Camera ─────────────────────────────────────────────────────────────────
+new Camera(video, {
+  onFrame: async () => {
+    await hands.send({ image: video });
+    if (!cameraReady) cameraReady = true;
+  },
+  width: 640, height: 480,
+}).start().catch(() => {
+  liveCtx.fillStyle = '#111'; liveCtx.fillRect(0, 0, W, H);
+  liveCtx.fillStyle = '#444'; liveCtx.font = '13px Georgia';
+  liveCtx.textAlign = 'center';
+  liveCtx.fillText('Allow camera access then refresh', W / 2, H / 2);
+});
+
+// ── Main render loop ───────────────────────────────────────────────────────
+function render() {
+  frame++;
+  if (flashFrames > 0) flashFrames--;
+
+  const drift = Math.sin(frame * 0.007) * 0.028;
+  const spd   = handVisible ? 0.08 : 0.013;
+  currentHue   = lerp(currentHue,   (handX + drift) * 360, spd);
+  currentSat   = lerp(currentSat,   45 + (1 - handY) * 50, spd);
+  currentLight = lerp(currentLight, 28 + handY * 42,       spd);
+
+  const hsl = `hsl(${currentHue},${currentSat}%,${currentLight}%)`;
+
+  // ── Sidebar UI ────────────────────────────────────────────────────────
+  hueIndicator.style.top = `${(((currentHue % 360) + 360) % 360) / 360 * 420}px`;
+  hueIndicator.style.boxShadow = `0 0 8px 2px ${hsl}, 0 0 0 1px rgba(0,0,0,0.5)`;
+
+  toneBar.style.background = `linear-gradient(to bottom,
+    hsl(${Math.round(currentHue)},90%,30%),
+    hsl(${Math.round(currentHue)},65%,52%),
+    hsl(${Math.round(currentHue)},20%,70%))`;
+  toneIndicator.style.top = `${handY * 80}px`;
+
+  colorSwatch.style.backgroundColor = hsl;
+  colorSwatch.style.boxShadow = `0 0 22px ${hsl}55`;
+
+  const name = hueName(currentHue);
+  if (name !== lastHueName) {
+    colorNameEl.textContent = name;
+    colorNameEl.style.color = hsl;
+    lastHueName = name;
+  }
+
+  liveCanvas.style.boxShadow =
+    `0 0 40px hsla(${currentHue},${currentSat}%,${currentLight}%,0.28),
+     0 0 90px hsla(${currentHue},${currentSat}%,${currentLight}%,0.1)`;
+
+  // ── Canvas: clear ─────────────────────────────────────────────────────
+  liveCtx.fillStyle = '#0a0a0a';
+  liveCtx.fillRect(0, 0, W, H);
+
+  // ── Full scene duotone (the "x-ray" effect) ───────────────────────────
+  if (cameraReady) {
+    // 1. Draw full mirrored video in grayscale with contrast boost
+    liveCtx.save();
+    liveCtx.filter = 'grayscale(1) contrast(1.15) brightness(0.78)';
+    liveCtx.translate(W, 0);
+    liveCtx.scale(-1, 1);
+    liveCtx.drawImage(video, 0, 0, W, H);
+    liveCtx.restore(); // also resets filter
+
+    // 2. Colourize entire scene with hope colour
+    //    'color' blend: keeps luminance from grayscale video, applies hue+sat from fill
+    //    Result: full duotone — everything rendered as shades of the hope colour
+    liveCtx.globalCompositeOperation = 'color';
+    liveCtx.fillStyle = `hsl(${currentHue},${currentSat}%,52%)`;
+    liveCtx.fillRect(0, 0, W, H);
+    liveCtx.globalCompositeOperation = 'source-over';
+  }
+
+  // ── Particles (drawn on top, screen blend so they glow through) ───────
+  liveCtx.globalCompositeOperation = 'screen';
+  tickParticles();
+  drawParticles();
+  liveCtx.globalCompositeOperation = 'source-over';
+
+  // ── Hand indicators ────────────────────────────────────────────────────
+  if (landmarks) drawHandUI();
+
+  // ── Vignette ──────────────────────────────────────────────────────────
+  const vig = liveCtx.createRadialGradient(W / 2, H / 2, H * 0.18, W / 2, H / 2, H * 0.88);
+  vig.addColorStop(0, 'transparent');
+  vig.addColorStop(1, 'rgba(0,0,0,0.6)');
+  liveCtx.fillStyle = vig;
+  liveCtx.fillRect(0, 0, W, H);
+
+  // ── Selection flash ────────────────────────────────────────────────────
+  if (flashFrames > 0) {
+    const a = (flashFrames / 14) * 0.35;
+    liveCtx.fillStyle = `hsla(${currentHue},${currentSat}%,${currentLight + 25}%,${a})`;
+    liveCtx.fillRect(0, 0, W, H);
+  }
+
+  // ── Instructions ──────────────────────────────────────────────────────
+  drawInstructions();
+
+  requestAnimationFrame(render);
+}
+
+// ── Hand UI ────────────────────────────────────────────────────────────────
+function drawHandUI() {
+  const th = landmarks[4], ix = landmarks[8];
+  const tx = (1 - th.x) * W, ty = th.y * H;
+  const px = (1 - ix.x) * W, py = ix.y * H;
+  const d  = Math.hypot(tx - px, ty - py);
+  const t  = Math.max(0, Math.min(1, 1 - d / 90));
+  const col = `hsla(${currentHue},75%,88%,${0.45 + t * 0.55})`;
+
+  liveCtx.beginPath();
+  liveCtx.moveTo(tx, ty); liveCtx.lineTo(px, py);
+  liveCtx.strokeStyle = col;
+  liveCtx.lineWidth   = 1.2 + t * 1.5;
+  liveCtx.setLineDash(pinching ? [] : [5, 5]);
+  liveCtx.stroke();
+  liveCtx.setLineDash([]);
+
+  dot(tx, ty, 6.5, col);
+  dot(px, py, 6.5, col);
+
+  // Pinch arc fills in as fingers close
+  const mx = (tx + px) / 2, my = (ty + py) / 2;
+  const r  = 8 + (1 - t) * 14;
+  liveCtx.beginPath();
+  liveCtx.arc(mx, my, r, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * (t || 0.01));
+  liveCtx.strokeStyle = `hsla(${currentHue},80%,92%,${0.3 + t * 0.7})`;
+  liveCtx.lineWidth = 2;
+  liveCtx.stroke();
+
+  if (t > 0.55) {
+    liveCtx.font = 'italic 11px Cormorant Garamond, Georgia, serif';
+    liveCtx.fillStyle = `hsla(${currentHue},70%,90%,${t})`;
+    liveCtx.textAlign = 'center';
+    liveCtx.fillText(pinching ? 'saved ✓' : 'hold…', mx, my - r - 7);
+  }
+}
+
+function dot(x, y, r, c) {
+  liveCtx.beginPath();
+  liveCtx.arc(x, y, r, 0, Math.PI * 2);
+  liveCtx.fillStyle = c;
+  liveCtx.fill();
+}
+
+// ── Instructions ───────────────────────────────────────────────────────────
+function drawInstructions() {
+  liveCtx.font = 'italic 13px Cormorant Garamond, Georgia, serif';
+  liveCtx.textAlign = 'center';
+  const y = H - 14;
+
+  if (!cameraReady) {
+    liveCtx.fillStyle = 'rgba(100,100,100,0.55)';
+    liveCtx.fillText('Loading…', W / 2, y);
+  } else if (!handVisible) {
+    liveCtx.fillStyle = 'rgba(200,200,200,0.35)';
+    liveCtx.fillText('Raise your hand to begin', W / 2, y);
+  } else if (pinching) {
+    liveCtx.fillStyle = `hsla(${currentHue},70%,85%,0.95)`;
+    liveCtx.fillText('Colour saved ✓', W / 2, y);
+  } else {
+    liveCtx.fillStyle = 'rgba(200,200,200,0.28)';
+    liveCtx.fillText('Move hand to explore  ·  Pinch to select', W / 2, y);
+  }
+}
+
+// ── Select colour ──────────────────────────────────────────────────────────
+function selectColour() {
+  savedColors.push(
+    `hsl(${Math.round(currentHue)},${Math.round(currentSat)}%,${Math.round(currentLight)}%)`
+  );
+  flashFrames = 14;
+  redrawCollective();
+}
+
+// ── Collective canvas ──────────────────────────────────────────────────────
+function redrawCollective() {
+  collectiveCtx.fillStyle = '#070707';
+  collectiveCtx.fillRect(0, 0, CW, CH);
+
+  const n = savedColors.length;
+  countEl.textContent = `${n} response${n === 1 ? '' : 's'}`;
+
+  if (n === 0) {
+    collectiveCtx.fillStyle = '#1a1a1a';
+    collectiveCtx.font = 'italic 13px Cormorant Garamond, Georgia, serif';
+    collectiveCtx.textAlign = 'center';
+    collectiveCtx.fillText('Waiting for first response…', CW / 2, CH / 2);
+    return;
+  }
+
+  const cols = Math.ceil(Math.sqrt(n * (CW / CH)));
+  const cw   = CW / cols;
+  const ch   = CH / Math.ceil(n / cols);
+
+  savedColors.forEach((color, i) => {
+    const cx = (i % cols) * cw;
+    const cy = Math.floor(i / cols) * ch;
+    collectiveCtx.fillStyle = color;
+    collectiveCtx.fillRect(cx + 1, cy + 1, cw - 2, ch - 2);
+  });
+
+  // Outline most recent entry
+  const last = n - 1;
+  const lcx  = (last % cols) * cw;
+  const lcy  = Math.floor(last / cols) * ch;
+  collectiveCtx.strokeStyle = 'rgba(255,255,255,0.25)';
+  collectiveCtx.lineWidth   = 1;
+  collectiveCtx.strokeRect(lcx + 1.5, lcy + 1.5, cw - 3, ch - 3);
+}
+
+// ── Fallbacks ──────────────────────────────────────────────────────────────
+document.addEventListener('keydown', e => {
+  if (e.code === 'Space') { e.preventDefault(); selectColour(); }
+});
+liveCanvas.addEventListener('mousemove', e => {
+  if (handVisible) return;
+  const r = liveCanvas.getBoundingClientRect();
+  handX = (e.clientX - r.left) / W;
+  handY = (e.clientY - r.top) / H;
+});
+liveCanvas.addEventListener('click', () => { if (!handVisible) selectColour(); });
+
+function lerp(a, b, t) { return a + (b - a) * t; }
+
+redrawCollective();
+render();
+</script>
+</body>
+</html>

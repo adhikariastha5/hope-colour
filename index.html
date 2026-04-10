@@ -53,14 +53,14 @@
       justify-content: center;
     }
 
-    /* ── Spectrum panel ──────────────────────────────────── */
+    /* ── Colour preview panel ───────────────────────────── */
     .spectrum-panel {
       display: flex;
       flex-direction: column;
       align-items: center;
       gap: 14px;
-      width: 68px;
-      padding-top: 2px;
+      width: 80px;
+      padding-top: 80px;
     }
     .panel-label {
       font-family: 'Space Mono', monospace;
@@ -68,70 +68,6 @@
       letter-spacing: 0.22em;
       color: #2c2c2c;
       text-transform: uppercase;
-    }
-
-    .hue-strip-wrap {
-      position: relative;
-      width: 30px;
-      height: 420px;
-    }
-    .hue-strip {
-      width: 30px;
-      height: 420px;
-      border-radius: 15px;
-      background: linear-gradient(to bottom,
-        hsl(0,75%,52%), hsl(20,80%,52%), hsl(40,80%,52%),
-        hsl(60,80%,52%), hsl(80,75%,48%), hsl(100,75%,48%),
-        hsl(120,72%,48%), hsl(150,75%,48%), hsl(170,78%,48%),
-        hsl(190,80%,50%), hsl(210,80%,52%), hsl(230,80%,52%),
-        hsl(250,78%,52%), hsl(270,78%,52%), hsl(290,78%,52%),
-        hsl(310,78%,52%), hsl(330,78%,52%), hsl(360,75%,52%));
-      opacity: 0.55;
-    }
-    .hue-indicator {
-      position: absolute;
-      left: 50%;
-      transform: translate(-50%, -50%);
-      width: 20px;
-      height: 20px;
-      border: 2px solid #fff;
-      border-radius: 50%;
-      pointer-events: none;
-      box-shadow: 0 0 0 1px rgba(0,0,0,0.6);
-      transition: top 0.09s ease-out;
-    }
-
-    .axis-hint {
-      font-family: 'Space Mono', monospace;
-      font-size: 0.48rem;
-      color: #282828;
-      letter-spacing: 0.05em;
-      text-align: center;
-      line-height: 1.6;
-    }
-
-    .tone-bar-wrap {
-      position: relative;
-      width: 30px;
-      height: 80px;
-    }
-    .tone-bar {
-      width: 30px;
-      height: 80px;
-      border-radius: 15px;
-      opacity: 0.55;
-      transition: background 0.15s;
-    }
-    .tone-indicator {
-      position: absolute;
-      left: 50%;
-      transform: translate(-50%, -50%);
-      width: 16px;
-      height: 16px;
-      border: 2px solid rgba(255,255,255,0.7);
-      border-radius: 50%;
-      pointer-events: none;
-      transition: top 0.09s ease-out;
     }
 
     .color-preview {
@@ -142,8 +78,8 @@
       margin-top: 4px;
     }
     .color-swatch {
-      width: 38px;
-      height: 38px;
+      width: 52px;
+      height: 52px;
       border-radius: 50%;
       transition: background-color 0.12s, box-shadow 0.12s;
     }
@@ -189,22 +125,9 @@
 
 <div class="layout">
 
-  <!-- ── Spectrum reference (stays at top) ───────────────── -->
+  <!-- ── Selected colour preview ─────────────────────────── -->
   <div class="spectrum-panel">
-    <div class="panel-label">Hue</div>
-    <div class="hue-strip-wrap">
-      <div class="hue-strip"></div>
-      <div class="hue-indicator" id="hueIndicator"></div>
-    </div>
-    <div class="axis-hint">← left<br>→ right</div>
-
-    <div class="panel-label">Tone</div>
-    <div class="tone-bar-wrap">
-      <div class="tone-bar" id="toneBar"></div>
-      <div class="tone-indicator" id="toneIndicator"></div>
-    </div>
-    <div class="axis-hint">↑ vivid<br>↓ soft</div>
-
+    <div class="panel-label">Selected</div>
     <div class="color-preview">
       <div class="color-swatch" id="colorSwatch"></div>
       <div class="color-name" id="colorName">—</div>
@@ -255,11 +178,51 @@ const CW = collectiveCanvas.width, CH = collectiveCanvas.height;
 
 const video         = document.getElementById('video');
 const countEl       = document.getElementById('count');
-const hueIndicator  = document.getElementById('hueIndicator');
-const toneBar       = document.getElementById('toneBar');
-const toneIndicator = document.getElementById('toneIndicator');
 const colorSwatch   = document.getElementById('colorSwatch');
 const colorNameEl   = document.getElementById('colorName');
+
+// ── Offscreen palette canvas (generated once) ─────────────────────────────
+const paletteCanvas = document.createElement('canvas');
+paletteCanvas.width = W;
+paletteCanvas.height = H;
+const palCtx = paletteCanvas.getContext('2d');
+
+// Shared palette math — used by both the palette texture and the hand→colour mapping
+function paletteAt(yNorm) {
+  // Top (0) = white/light, middle (0.5) = vivid saturated, bottom (1) = black/dark
+  const lightness  = 97 - yNorm * 94;                          // 97 → 3
+  // Saturation: low at top (pastels/whites), peaks in the mid zone, drops to 0 at
+  // the very bottom (greys/blacks). sin curve with a slight bias toward the upper half.
+  const saturation = 95 * Math.sin(Math.pow(yNorm, 0.6) * Math.PI); // 0 → ~95 → 0
+  return { s: Math.max(saturation, 0), l: lightness };
+}
+
+(function buildPalette() {
+  const cols = W, rows = H;
+  const imgData = palCtx.createImageData(cols, rows);
+  for (let y = 0; y < rows; y++) {
+    const yNorm = y / rows;
+    const { s: saturation, l: lightness } = paletteAt(yNorm);
+    for (let x = 0; x < cols; x++) {
+      const hue = (x / cols) * 360;
+      const [r, g, b] = hslToRgb(hue, saturation, lightness);
+      const i = (y * cols + x) * 4;
+      imgData.data[i]     = r;
+      imgData.data[i + 1] = g;
+      imgData.data[i + 2] = b;
+      imgData.data[i + 3] = 255;
+    }
+  }
+  palCtx.putImageData(imgData, 0, 0);
+})();
+
+function hslToRgb(h, s, l) {
+  s /= 100; l /= 100;
+  const k = n => (n + h / 30) % 12;
+  const a = s * Math.min(l, 1 - l);
+  const f = n => l - a * Math.max(-1, Math.min(k(n) - 3, 9 - k(n), 1));
+  return [Math.round(f(0) * 255), Math.round(f(8) * 255), Math.round(f(4) * 255)];
+}
 
 // ── Particles ──────────────────────────────────────────────────────────────
 const PARTICLES = Array.from({ length: 40 }, () => ({
@@ -309,7 +272,7 @@ function hueName(h) {
 let landmarks = null;
 let handX = 0.5, handY = 0.5;
 let currentHue = 200, currentSat = 62, currentLight = 48;
-let pinching = false, lastPinch = false;
+let fistClosed = false, lastFist = false;
 let savedColors = [];
 let frame = 0, handVisible = false, cameraReady = false;
 let flashFrames = 0;
@@ -334,10 +297,13 @@ hands.onResults(r => {
   handX = 1 - palm.x; // mirror
   handY = palm.y;
 
-  const th = landmarks[4], ix = landmarks[8];
-  pinching = Math.hypot(th.x - ix.x, th.y - ix.y) < 0.05;
-  if (pinching && !lastPinch) selectColour();
-  lastPinch = pinching;
+  // Fist detection: check if all fingertips are curled toward the palm
+  const tips = [8, 12, 16, 20]; // index, middle, ring, pinky tips
+  const avgDist = tips.reduce((sum, i) =>
+    sum + Math.hypot(landmarks[i].x - palm.x, landmarks[i].y - palm.y), 0) / 4;
+  fistClosed = avgDist < 0.08;
+  if (fistClosed && !lastFist) selectColour();
+  lastFist = fistClosed;
 });
 
 // ── Camera ─────────────────────────────────────────────────────────────────
@@ -359,24 +325,20 @@ function render() {
   frame++;
   if (flashFrames > 0) flashFrames--;
 
-  const drift = Math.sin(frame * 0.007) * 0.028;
-  const spd   = handVisible ? 0.08 : 0.013;
-  currentHue   = lerp(currentHue,   (handX + drift) * 360, spd);
-  currentSat   = lerp(currentSat,   45 + (1 - handY) * 50, spd);
-  currentLight = lerp(currentLight, 28 + handY * 42,       spd);
+  // Map hand position to palette coordinates (must match palette generation)
+  const spd = handVisible ? 0.13 : 0.013;
+  const clampedY = Math.max(0, Math.min(1, handY));
+  const { s: palS, l: palL } = paletteAt(clampedY);
+  const targetHue   = Math.max(0, Math.min(360, handX * 360));
+  const targetSat   = palS;
+  const targetLight = palL;
+  currentHue   = lerp(currentHue,   targetHue,   spd);
+  currentSat   = lerp(currentSat,   targetSat,   spd);
+  currentLight = lerp(currentLight, targetLight,  spd);
 
   const hsl = `hsl(${currentHue},${currentSat}%,${currentLight}%)`;
 
-  // ── Sidebar UI ────────────────────────────────────────────────────────
-  hueIndicator.style.top = `${(((currentHue % 360) + 360) % 360) / 360 * 420}px`;
-  hueIndicator.style.boxShadow = `0 0 8px 2px ${hsl}, 0 0 0 1px rgba(0,0,0,0.5)`;
-
-  toneBar.style.background = `linear-gradient(to bottom,
-    hsl(${Math.round(currentHue)},90%,30%),
-    hsl(${Math.round(currentHue)},65%,52%),
-    hsl(${Math.round(currentHue)},20%,70%))`;
-  toneIndicator.style.top = `${handY * 80}px`;
-
+  // ── Sidebar swatch ────────────────────────────────────────────────────
   colorSwatch.style.backgroundColor = hsl;
   colorSwatch.style.boxShadow = `0 0 22px ${hsl}55`;
 
@@ -395,23 +357,58 @@ function render() {
   liveCtx.fillStyle = '#0a0a0a';
   liveCtx.fillRect(0, 0, W, H);
 
-  // ── Full scene duotone (the "x-ray" effect) ───────────────────────────
+  // ── Video feed (dimmed, under the palette) ────────────────────────────
   if (cameraReady) {
-    // 1. Draw full mirrored video in grayscale with contrast boost
     liveCtx.save();
-    liveCtx.filter = 'grayscale(1) contrast(1.15) brightness(0.78)';
+    liveCtx.globalAlpha = 0.25;
+    liveCtx.filter = 'grayscale(0.7) brightness(0.6)';
     liveCtx.translate(W, 0);
     liveCtx.scale(-1, 1);
     liveCtx.drawImage(video, 0, 0, W, H);
-    liveCtx.restore(); // also resets filter
+    liveCtx.restore();
+  }
 
-    // 2. Colourize entire scene with hope colour
-    //    'color' blend: keeps luminance from grayscale video, applies hue+sat from fill
-    //    Result: full duotone — everything rendered as shades of the hope colour
-    liveCtx.globalCompositeOperation = 'color';
-    liveCtx.fillStyle = `hsl(${currentHue},${currentSat}%,52%)`;
-    liveCtx.fillRect(0, 0, W, H);
-    liveCtx.globalCompositeOperation = 'source-over';
+  // ── Colour palette overlay ────────────────────────────────────────────
+  liveCtx.save();
+  liveCtx.globalAlpha = 0.72;
+  liveCtx.drawImage(paletteCanvas, 0, 0);
+  liveCtx.restore();
+
+  // ── Cursor: show what colour the hand is on ───────────────────────────
+  if (handVisible) {
+    const cx = handX * W, cy = handY * H;
+
+    // Outer ring — white for visibility
+    liveCtx.beginPath();
+    liveCtx.arc(cx, cy, 22, 0, Math.PI * 2);
+    liveCtx.strokeStyle = 'rgba(255,255,255,0.7)';
+    liveCtx.lineWidth = 2;
+    liveCtx.stroke();
+
+    // Inner filled circle — the actual selected colour
+    liveCtx.beginPath();
+    liveCtx.arc(cx, cy, 18, 0, Math.PI * 2);
+    liveCtx.fillStyle = hsl;
+    liveCtx.fill();
+    liveCtx.strokeStyle = 'rgba(0,0,0,0.5)';
+    liveCtx.lineWidth = 1;
+    liveCtx.stroke();
+
+    // Crosshair lines
+    liveCtx.strokeStyle = 'rgba(255,255,255,0.35)';
+    liveCtx.lineWidth = 0.5;
+    liveCtx.beginPath();
+    liveCtx.moveTo(cx - 30, cy); liveCtx.lineTo(cx - 24, cy);
+    liveCtx.moveTo(cx + 24, cy); liveCtx.lineTo(cx + 30, cy);
+    liveCtx.moveTo(cx, cy - 30); liveCtx.lineTo(cx, cy - 24);
+    liveCtx.moveTo(cx, cy + 24); liveCtx.lineTo(cx, cy + 30);
+    liveCtx.stroke();
+
+    // Colour name label next to cursor
+    liveCtx.font = 'italic 12px Cormorant Garamond, Georgia, serif';
+    liveCtx.fillStyle = 'rgba(255,255,255,0.85)';
+    liveCtx.textAlign = 'left';
+    liveCtx.fillText(name, cx + 28, cy + 5);
   }
 
   // ── Particles (drawn on top, screen blend so they glow through) ───────
@@ -445,38 +442,38 @@ function render() {
 
 // ── Hand UI ────────────────────────────────────────────────────────────────
 function drawHandUI() {
-  const th = landmarks[4], ix = landmarks[8];
-  const tx = (1 - th.x) * W, ty = th.y * H;
-  const px = (1 - ix.x) * W, py = ix.y * H;
-  const d  = Math.hypot(tx - px, ty - py);
-  const t  = Math.max(0, Math.min(1, 1 - d / 90));
-  const col = `hsla(${currentHue},75%,88%,${0.45 + t * 0.55})`;
+  const palm = landmarks[9];
+  const cx = (1 - palm.x) * W, cy = palm.y * H;
 
+  // Measure how closed the fist is (0 = open, 1 = fully closed)
+  const tips = [8, 12, 16, 20];
+  const avgDist = tips.reduce((sum, i) =>
+    sum + Math.hypot(landmarks[i].x - palm.x, landmarks[i].y - palm.y), 0) / 4;
+  const t = Math.max(0, Math.min(1, 1 - avgDist / 0.16));
+  const col = `hsla(${currentHue},75%,88%,${0.35 + t * 0.6})`;
+
+  // Draw fingertip dots
+  tips.forEach(i => {
+    const fx = (1 - landmarks[i].x) * W, fy = landmarks[i].y * H;
+    dot(fx, fy, 3.5 + t * 2, col);
+  });
+
+  // Ring around palm that fills as fist closes
+  const r = 18 + (1 - t) * 16;
   liveCtx.beginPath();
-  liveCtx.moveTo(tx, ty); liveCtx.lineTo(px, py);
-  liveCtx.strokeStyle = col;
-  liveCtx.lineWidth   = 1.2 + t * 1.5;
-  liveCtx.setLineDash(pinching ? [] : [5, 5]);
-  liveCtx.stroke();
-  liveCtx.setLineDash([]);
-
-  dot(tx, ty, 6.5, col);
-  dot(px, py, 6.5, col);
-
-  // Pinch arc fills in as fingers close
-  const mx = (tx + px) / 2, my = (ty + py) / 2;
-  const r  = 8 + (1 - t) * 14;
-  liveCtx.beginPath();
-  liveCtx.arc(mx, my, r, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * (t || 0.01));
-  liveCtx.strokeStyle = `hsla(${currentHue},80%,92%,${0.3 + t * 0.7})`;
-  liveCtx.lineWidth = 2;
+  liveCtx.arc(cx, cy, r, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * (t || 0.01));
+  liveCtx.strokeStyle = `hsla(${currentHue},80%,92%,${0.25 + t * 0.75})`;
+  liveCtx.lineWidth = 2 + t * 1.5;
   liveCtx.stroke();
 
-  if (t > 0.55) {
+  // Palm center dot
+  dot(cx, cy, 5 + t * 3, col);
+
+  if (t > 0.5) {
     liveCtx.font = 'italic 11px Cormorant Garamond, Georgia, serif';
     liveCtx.fillStyle = `hsla(${currentHue},70%,90%,${t})`;
     liveCtx.textAlign = 'center';
-    liveCtx.fillText(pinching ? 'saved ✓' : 'hold…', mx, my - r - 7);
+    liveCtx.fillText(fistClosed ? 'saved ✓' : 'close fist…', cx, cy - r - 7);
   }
 }
 
@@ -499,25 +496,59 @@ function drawInstructions() {
   } else if (!handVisible) {
     liveCtx.fillStyle = 'rgba(200,200,200,0.35)';
     liveCtx.fillText('Raise your hand to begin', W / 2, y);
-  } else if (pinching) {
+  } else if (fistClosed) {
     liveCtx.fillStyle = `hsla(${currentHue},70%,85%,0.95)`;
     liveCtx.fillText('Colour saved ✓', W / 2, y);
   } else {
     liveCtx.fillStyle = 'rgba(200,200,200,0.28)';
-    liveCtx.fillText('Move hand to explore  ·  Pinch to select', W / 2, y);
+    liveCtx.fillText('Move hand to explore  ·  Close fist to select', W / 2, y);
   }
 }
 
 // ── Select colour ──────────────────────────────────────────────────────────
 function selectColour() {
-  savedColors.push(
-    `hsl(${Math.round(currentHue)},${Math.round(currentSat)}%,${Math.round(currentLight)}%)`
-  );
+  savedColors.push({
+    h: Math.round(currentHue)   || 0,
+    s: Math.round(currentSat)   || 0,
+    l: Math.round(currentLight) || 50,
+  });
   flashFrames = 14;
   redrawCollective();
 }
 
 // ── Collective canvas ──────────────────────────────────────────────────────
+
+// Group colors by hue proximity
+function groupColors(colors) {
+  if (colors.length === 0) return [];
+  const HUE_GAP = 35; // max hue difference within a group
+  // Sort by hue
+  const sorted = colors.map((c, i) => ({ ...c, idx: i })).sort((a, b) => a.h - b.h);
+  const groups = [{ colors: [sorted[0]] }];
+  for (let i = 1; i < sorted.length; i++) {
+    const prev = groups[groups.length - 1];
+    const avgH = prev.colors.reduce((s, c) => s + c.h, 0) / prev.colors.length;
+    // Also handle wrap-around (e.g. 350° and 10° are close)
+    const diff = Math.min(
+      Math.abs(sorted[i].h - avgH),
+      360 - Math.abs(sorted[i].h - avgH)
+    );
+    if (diff < HUE_GAP) {
+      prev.colors.push(sorted[i]);
+    } else {
+      groups.push({ colors: [sorted[i]] });
+    }
+  }
+  // Compute group averages
+  groups.forEach(g => {
+    const n = g.colors.length;
+    g.avgH = g.colors.reduce((s, c) => s + c.h, 0) / n;
+    g.avgS = g.colors.reduce((s, c) => s + c.s, 0) / n;
+    g.avgL = g.colors.reduce((s, c) => s + c.l, 0) / n;
+  });
+  return groups;
+}
+
 function redrawCollective() {
   collectiveCtx.fillStyle = '#070707';
   collectiveCtx.fillRect(0, 0, CW, CH);
@@ -533,24 +564,100 @@ function redrawCollective() {
     return;
   }
 
-  const cols = Math.ceil(Math.sqrt(n * (CW / CH)));
-  const cw   = CW / cols;
-  const ch   = CH / Math.ceil(n / cols);
+  const groups = groupColors(savedColors);
+  const padding = 40;
+  const usableW = CW - padding * 2;
+  const usableH = CH - padding * 2;
+  const centerX = CW / 2, centerY = CH / 2;
 
-  savedColors.forEach((color, i) => {
-    const cx = (i % cols) * cw;
-    const cy = Math.floor(i / cols) * ch;
-    collectiveCtx.fillStyle = color;
-    collectiveCtx.fillRect(cx + 1, cy + 1, cw - 2, ch - 2);
+  // Position groups in a circular layout if multiple, centered if one
+  groups.forEach((g, gi) => {
+    if (groups.length === 1) {
+      g.cx = centerX;
+      g.cy = centerY;
+    } else {
+      const angle = (gi / groups.length) * Math.PI * 2 - Math.PI / 2;
+      const spread = Math.min(usableW, usableH) * 0.3;
+      g.cx = centerX + Math.cos(angle) * spread;
+      g.cy = centerY + Math.sin(angle) * spread;
+    }
   });
 
-  // Outline most recent entry
-  const last = n - 1;
-  const lcx  = (last % cols) * cw;
-  const lcy  = Math.floor(last / cols) * ch;
-  collectiveCtx.strokeStyle = 'rgba(255,255,255,0.25)';
-  collectiveCtx.lineWidth   = 1;
-  collectiveCtx.strokeRect(lcx + 1.5, lcy + 1.5, cw - 3, ch - 3);
+  // ── Weight: how dominant is each group? ─────────────────────────────────
+  const maxCount = Math.max(...groups.map(g => g.colors.length));
+
+  // 'screen' blend — colors mix without blowing out to white
+  collectiveCtx.globalCompositeOperation = 'screen';
+
+  groups.forEach(g => {
+    const count = g.colors.length;
+    // weight 0→1 based on how popular this group is vs the most popular
+    const weight = count / maxCount;
+
+    // Radius & opacity scale with weight — popular groups are bigger + deeper
+    const minR = Math.min(usableW, usableH) * 0.12;
+    const maxR = Math.min(usableW, usableH) * 0.46;
+    const groupR = minR + weight * (maxR - minR);
+
+    // Popular groups get higher opacity (deeper color), but capped low to avoid white
+    const alpha = 0.08 + weight * 0.32;           // 0.08 (rare) → 0.40 (dominant)
+
+    // Draw each color as a soft circle within the group
+    g.colors.forEach((c, ci) => {
+      let cx, cy;
+      if (count === 1) {
+        cx = g.cx;
+        cy = g.cy;
+      } else {
+        const a = (ci / count) * Math.PI * 2 + g.avgH * 0.017;
+        const ring = Math.floor(ci / 6);
+        const dist = 12 + ring * 14 + (ci % 6) * 3;
+        cx = g.cx + Math.cos(a) * Math.min(dist, groupR * 0.65);
+        cy = g.cy + Math.sin(a) * Math.min(dist, groupR * 0.65);
+      }
+
+      const r = Math.max(16, groupR * 0.5);
+
+      // Steeper falloff — color concentrated in center, fades quickly
+      const grad = collectiveCtx.createRadialGradient(cx, cy, 0, cx, cy, r);
+      grad.addColorStop(0,   `hsla(${c.h},${c.s}%,${c.l}%,${alpha})`);
+      grad.addColorStop(0.25,`hsla(${c.h},${c.s}%,${c.l}%,${alpha * 0.5})`);
+      grad.addColorStop(0.55,`hsla(${c.h},${c.s}%,${c.l}%,${alpha * 0.12})`);
+      grad.addColorStop(1,   `hsla(${c.h},${c.s}%,${c.l}%,0)`);
+
+      collectiveCtx.beginPath();
+      collectiveCtx.arc(cx, cy, r, 0, Math.PI * 2);
+      collectiveCtx.fillStyle = grad;
+      collectiveCtx.fill();
+    });
+
+  });
+
+  // Newest colour indicator
+  collectiveCtx.globalCompositeOperation = 'source-over';
+  const lastGroup = groups.find(g => g.colors.some(c => c.idx === n - 1));
+  if (lastGroup) {
+    const nc = lastGroup.colors.find(c => c.idx === n - 1);
+    const ni = lastGroup.colors.indexOf(nc);
+    const count = lastGroup.colors.length;
+    const weight = count / maxCount;
+    const groupR = Math.min(usableW, usableH) * 0.12 + weight * (Math.min(usableW, usableH) * 0.34);
+    let nx, ny;
+    if (count === 1) {
+      nx = lastGroup.cx; ny = lastGroup.cy;
+    } else {
+      const a = (ni / count) * Math.PI * 2 + lastGroup.avgH * 0.017;
+      const ring = Math.floor(ni / 6);
+      const dist = 12 + ring * 14 + (ni % 6) * 3;
+      nx = lastGroup.cx + Math.cos(a) * Math.min(dist, groupR * 0.65);
+      ny = lastGroup.cy + Math.sin(a) * Math.min(dist, groupR * 0.65);
+    }
+    collectiveCtx.beginPath();
+    collectiveCtx.arc(nx, ny, 5, 0, Math.PI * 2);
+    collectiveCtx.strokeStyle = 'rgba(255,255,255,0.45)';
+    collectiveCtx.lineWidth = 1.5;
+    collectiveCtx.stroke();
+  }
 }
 
 // ── Fallbacks ──────────────────────────────────────────────────────────────

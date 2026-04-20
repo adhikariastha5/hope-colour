@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Gallery</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #090910;
+    }
+    #c {
+      display: block;
+      width: 100%;
+      height: 100%;
+    }
+  </style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>
+(function () {
+  const LAST_KEY = 'hopeLast';
+  const STORAGE_KEY = 'hopeGallery';
+  const SYNC_CHANNEL = 'hope-colour-exhibit';
+
+  const canvas = document.getElementById('c');
+  const ctx = canvas.getContext('2d');
+
+  let syncBc = null;
+  try {
+    syncBc = new BroadcastChannel(SYNC_CHANNEL);
+  } catch (_) {}
+
+  let lastSig = '';
+
+  function loadGallery() {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) return [];
+      const list = JSON.parse(raw);
+      return Array.isArray(list) ? list : [];
+    } catch {
+      return [];
+    }
+  }
+
+  function hueDiff(a, b) {
+    const d = Math.abs(a - b);
+    return Math.min(d, 360 - d);
+  }
+
+  /** Similar hues → one cluster (positions nest together, no boxes). */
+  function groupColors(colors) {
+    if (!colors.length) return [];
+    const HUE_GAP = 38;
+    const sorted = colors.map((c, i) => ({ ...c, idx: i })).sort((a, b) => a.h - b.h);
+    const groups = [{ colors: [sorted[0]] }];
+    for (let i = 1; i < sorted.length; i++) {
+      const prev = groups[groups.length - 1];
+      const avgH = prev.colors.reduce((s, c) => s + c.h, 0) / prev.colors.length;
+      const diff = hueDiff(sorted[i].h, avgH);
+      if (diff < HUE_GAP) prev.colors.push(sorted[i]);
+      else groups.push({ colors: [sorted[i]] });
+    }
+    groups.forEach(g => {
+      const n = g.colors.length;
+      g.avgH = g.colors.reduce((s, c) => s + c.h, 0) / n;
+      g.avgS = g.colors.reduce((s, c) => s + c.s, 0) / n;
+      g.avgL = g.colors.reduce((s, c) => s + c.l, 0) / n;
+    });
+    return groups;
+  }
+
+  function resize() {
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    canvas.width = Math.floor(w * dpr);
+    canvas.height = Math.floor(h * dpr);
+    canvas.style.width = `${w}px`;
+    canvas.style.height = `${h}px`;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+
+  function toDropHSL(c) {
+    const hue = ((c.h % 360) + 360) % 360;
+    const s = Math.min(100, Math.max(40, c.s * 1.01 + 2));
+    let l = c.l;
+    l = Math.max(24, Math.min(56, l * 0.95 + 1));
+    return { h: hue, s, l };
+  }
+
+  /** One soft paint drop: saturated core, feathered edge, whisper outline only */
+  function drawPaintDrop(cx, cy, coreR, c) {
+    const { h, s, l } = toDropHSL(c);
+    const haloR = coreR * 2.35;
+
+    ctx.save();
+    const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, haloR);
+    g.addColorStop(0, `hsl(${h},${s}%,${l}%)`);
+    g.addColorStop(0.38, `hsla(${h},${s}%,${l}%,0.92)`);
+    g.addColorStop(0.72, `hsla(${h},${s}%,${l}%,0.28)`);
+    g.addColorStop(1, `hsla(${h},${s}%,${l}%,0)`);
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(cx, cy, haloR, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.beginPath();
+    ctx.arc(cx, cy, Math.max(0.8, coreR * 0.92), 0, Math.PI * 2);
+    ctx.strokeStyle = `hsla(${h},${Math.min(s + 8, 100)}%,${Math.min(l + 18, 60)}%,0.16)`;
+    ctx.lineWidth = 0.85;
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  /** Stable scatter from ts + index — same data → same constellation */
+  function dropPosition(c, i, gcx, gcy, spread, w, h, pad, coreR) {
+    const seed = (c.ts % 200003) / 200003;
+    const a = seed * Math.PI * 2 + i * 2.3999632;
+    const rings = Math.floor(Math.sqrt(i + 0.2));
+    const d =
+      1.2 +
+      Math.sqrt(i + 1) * 1.85 +
+      (i % 5) * 1.1 +
+      rings * 1.45 +
+      (seed - 0.5) * spread * 0.35;
+    const dist = Math.min(d, spread);
+    const dx = Math.cos(a) * dist;
+    const dy = Math.sin(a * 1.07) * dist;
+    let cx = gcx + dx;
+    let cy = gcy + dy;
+    const m = pad + coreR * 2.2;
+    cx = Math.max(m, Math.min(w - m, cx));
+    cy = Math.max(m, Math.min(h - m, cy));
+    return { cx, cy };
+  }
+
+  function draw() {
+    const sig =
+      (localStorage.getItem(LAST_KEY) || '') +
+      '|' +
+      (localStorage.getItem(STORAGE_KEY) || '');
+    if (sig === lastSig) return;
+    lastSig = sig;
+
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    const list = loadGallery();
+
+    ctx.globalCompositeOperation = 'source-over';
+    const bg = ctx.createRadialGradient(w * 0.5, h * 0.45, 0, w * 0.5, h * 0.5, Math.max(w, h) * 0.72);
+    bg.addColorStop(0, '#12121c');
+    bg.addColorStop(0.55, '#0b0b12');
+    bg.addColorStop(1, '#06060a');
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, w, h);
+
+    if (!list.length) return;
+
+    const groups = groupColors(list).sort((a, b) => a.avgH - b.avgH);
+    const total = list.length;
+    const ng = groups.length;
+
+    const pad = Math.max(14, Math.min(40, w * 0.035));
+    const innerW = w - pad * 2;
+    const innerH = h - pad * 2;
+
+    const coreR = Math.max(1.6, Math.min(4.8, 165 / Math.pow(Math.max(total, 1), 0.38)));
+
+    const spreadScale = Math.max(0.35, 1 - total / 9500);
+    const baseSpread = Math.min(innerH * 0.11, 10 + Math.sqrt(total / ng) * 2.2) * spreadScale;
+
+    groups.forEach((g, gi) => {
+      const u = g.avgH / 360;
+      const lift = 0.12 + 0.76 * (1 - Math.min(g.avgL, 95) / 95);
+      const weave = Math.sin(gi * 1.37 + g.avgS * 0.04) * innerH * 0.045;
+      let gcx = pad + u * innerW;
+      let gcy = pad + lift * innerH + weave;
+
+      const huePull = Math.cos((g.avgH / 360) * Math.PI * 2) * innerW * 0.018;
+      const huePullY = Math.sin((g.avgH / 360) * Math.PI * 2) * innerH * 0.014;
+      gcx += huePull + ((gi * 13) % 7) * 2.2;
+      gcy += huePullY + ((gi * 11) % 5) * 2.2;
+
+      gcx = Math.max(pad + coreR * 2, Math.min(w - pad - coreR * 2, gcx));
+      gcy = Math.max(pad + coreR * 2, Math.min(h - pad - coreR * 2, gcy));
+
+      const spread = Math.min(innerW * 0.09, innerH * 0.1, baseSpread + Math.sqrt(g.colors.length) * 2.8);
+
+      g.colors.forEach((c, i) => {
+        const { cx, cy } = dropPosition(c, i, gcx, gcy, spread, w, h, pad, coreR);
+        drawPaintDrop(cx, cy, coreR, c);
+      });
+    });
+  }
+
+  function forceDraw() {
+    lastSig = '';
+    draw();
+  }
+
+  window.addEventListener('resize', () => {
+    resize();
+    forceDraw();
+  });
+
+  window.addEventListener('storage', e => {
+    if (e.key === LAST_KEY || e.key === STORAGE_KEY) forceDraw();
+  });
+
+  if (syncBc) syncBc.addEventListener('message', forceDraw);
+
+  window.setInterval(draw, 1000);
+
+  resize();
+  draw();
+})();
+</script>
+</body>
+</html>
